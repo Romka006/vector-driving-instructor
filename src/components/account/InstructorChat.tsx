@@ -280,14 +280,53 @@ export default function InstructorChat({ studentId, studentName, visible, onProa
     });
   }, []);
 
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const historyKey = `vector_ai_chat_${studentId ?? 'guest'}`;
+
+  const skipSave = useRef(true);
+
   useEffect(() => {
-    if (mode === 'ai' && aiMessages.length === 0) {
+    skipSave.current = true;
+    try {
+      const raw = localStorage.getItem(historyKey);
+      if (raw) {
+        const saved = JSON.parse(raw) as AiMessage[];
+        if (Array.isArray(saved) && saved.length > 0) setAiMessages(saved);
+      }
+    } catch {
+      localStorage.removeItem(historyKey);
+    }
+    setHistoryLoaded(true);
+  }, [historyKey]);
+
+  useEffect(() => {
+    if (!historyLoaded) return;
+    if (skipSave.current) { skipSave.current = false; return; }
+    try {
+      const keep = aiMessages.slice(-60);
+      if (keep.length > 1) localStorage.setItem(historyKey, JSON.stringify(keep));
+      else localStorage.removeItem(historyKey);
+    } catch {
+      return;
+    }
+  }, [aiMessages, historyLoaded, historyKey]);
+
+  useEffect(() => {
+    if (historyLoaded && mode === 'ai' && aiMessages.length === 0) {
       const txt = aiWelcome
         ? aiWelcome.replace('{name}', studentName || '').trim()
         : `Привет${studentName ? ', ' + studentName : ''}! Я ваш виртуальный инструктор. Смотрите видео и спрашивайте всё, что непонятно: про вождение, ПДД или экзамен.`;
       setAiMessages([{ id: 'ai-welcome', role: 'instructor', text: txt }]);
     }
-  }, [mode, aiWelcome]);
+  }, [mode, aiWelcome, historyLoaded, aiMessages.length]);
+
+  const clearHistory = () => {
+    if (!window.confirm('Начать диалог заново? Прежняя переписка в этом окне удалится.')) return;
+    localStorage.removeItem(historyKey);
+    awaitingRemark.current = false;
+    setAiError('');
+    setAiMessages([]);
+  };
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -487,6 +526,11 @@ export default function InstructorChat({ studentId, studentName, visible, onProa
         </div>
         {mode === 'topics' && (
           <button onClick={handleReset} className="text-white/50 hover:text-white/80 transition-colors p-1.5" title="Начать заново">
+            <Icon name="RotateCcw" size={15} />
+          </button>
+        )}
+        {mode === 'ai' && aiMessages.length > 1 && (
+          <button onClick={clearHistory} className="text-white/50 hover:text-white/80 transition-colors p-1.5" title="Начать диалог заново">
             <Icon name="RotateCcw" size={15} />
           </button>
         )}

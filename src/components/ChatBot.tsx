@@ -338,15 +338,53 @@ export default function ChatBot() {
     }).catch(() => {});
   }, []);
 
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const historyKey = `vector_ai_chat_${studentId ?? 'guest'}`;
+
+  const skipSave = useRef(true);
+
+  useEffect(() => {
+    skipSave.current = true;
+    try {
+      const raw = localStorage.getItem(historyKey);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (Array.isArray(saved) && saved.length > 0) setAiMessages(saved);
+      }
+    } catch {
+      localStorage.removeItem(historyKey);
+    }
+    setHistoryLoaded(true);
+  }, [historyKey]);
+
+  useEffect(() => {
+    if (!historyLoaded) return;
+    if (skipSave.current) { skipSave.current = false; return; }
+    try {
+      const keep = aiMessages.slice(-60);
+      if (keep.length > 1) localStorage.setItem(historyKey, JSON.stringify(keep));
+      else localStorage.removeItem(historyKey);
+    } catch {
+      return;
+    }
+  }, [aiMessages, historyLoaded, historyKey]);
+
+  const clearHistory = () => {
+    if (!window.confirm('Начать диалог заново? Прежняя переписка в этом окне удалится.')) return;
+    localStorage.removeItem(historyKey);
+    setAiError('');
+    setAiMessages([]);
+  };
+
   // Инициализируем AI-режим приветствием
   useEffect(() => {
-    if (mode === 'ai' && aiMessages.length === 0) {
+    if (historyLoaded && mode === 'ai' && aiMessages.length === 0) {
       const welcomeText = aiWelcome
         ? aiWelcome.replace('{name}', studentName || '').replace('  ', ' ').trim()
         : `Привет${studentName ? ', ' + studentName : ''}! 👋 Я ваш AI-инструктор. Задайте любой вопрос про вождение, ПДД или подготовку к экзамену — отвечу подробно!`;
       setAiMessages([{ id: 'ai-welcome', role: 'instructor', text: welcomeText }]);
     }
-  }, [mode, aiWelcome]);
+  }, [mode, aiWelcome, historyLoaded, aiMessages.length]);
 
   useEffect(() => {
     studentMe()
@@ -543,6 +581,11 @@ export default function ChatBot() {
           </div>
           {mode === 'topics' && (
             <button onClick={handleReset} className="text-white/50 hover:text-white/80 transition-colors p-1" title="Начать заново">
+              <Icon name="RotateCcw" size={14} />
+            </button>
+          )}
+          {mode === 'ai' && aiMessages.length > 1 && (
+            <button onClick={clearHistory} className="text-white/50 hover:text-white/80 transition-colors p-1" title="Начать диалог заново">
               <Icon name="RotateCcw" size={14} />
             </button>
           )}

@@ -649,7 +649,9 @@ def handler(event: dict, context) -> dict:
     # ("какие поворотники включать", "с какой стороны объезжать") — не подсовываем
     # видео с ближайшим совпадением по названию (оно может быть про другое упражнение),
     # а отвечаем текстом через LLM, дав ему описания похожих видео как справочный материал.
-    if videos and detail_question and not video_intent:
+    msg_word_count = len(re.findall(r'[a-zа-яё0-9]+', message.lower()))
+    long_question = msg_word_count > 6 or '?' in message
+    if videos and (detail_question or long_question) and not video_intent:
         refs = '\n'.join(f"- {v['title']}: {v.get('text', '')}" for v in videos if v.get('title'))
         if refs:
             full_prompt += f'\n\nПОХОЖИЕ ВИДЕОМАТЕРИАЛЫ (возможно, релевантны вопросу, используй как справку, но не предлагай смотреть видео, если ученик не просил):\n{refs}'
@@ -658,7 +660,7 @@ def handler(event: dict, context) -> dict:
     # Если найдены разные (не один и тот же) манёвры, и ученик не уточнил явно, какой
     # именно ему нужен — не угадываем, а переспрашиваем, какой конкретно манёвр интересует.
     distinct_titles = {v['title'] for v in videos}
-    if videos and len(distinct_titles) > 1 and not video_intent:
+    if videos and len(distinct_titles) > 1 and not video_intent and msg_word_count <= 4:
         options = '\n'.join(f'— {t}' for t in distinct_titles)
         answer = f'Уточните, пожалуйста, какой именно манёвр вас интересует:\n{options}'
         save_log(message, answer)
