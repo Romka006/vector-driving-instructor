@@ -175,7 +175,7 @@ def call_yandex_gpt(api_key, folder_id, messages, temperature=0.3, max_tokens=20
 
 
 GEMINI_MODEL = 'gemini-3.7-flash'
-GEMINI_TIMEOUT = 10
+GEMINI_TIMEOUT = 20
 GEMINI_PAUSE_SEC = 120
 _gemini_down_until = 0.0
 
@@ -199,6 +199,7 @@ def call_gemini(messages, temperature=0.3, max_tokens=512, timeout=GEMINI_TIMEOU
         'messages': chat,
         'temperature': temperature,
         'max_tokens': max_tokens,
+        'reasoning_effort': 'low',
     }).encode('utf-8')
     req = urllib.request.Request(
         f'{base}/v1/chat/completions',
@@ -208,9 +209,16 @@ def call_gemini(messages, temperature=0.3, max_tokens=512, timeout=GEMINI_TIMEOU
     )
     with urllib.request.urlopen(req, timeout=timeout) as r:
         result = json.loads(r.read().decode('utf-8'))
-    text = (result['choices'][0]['message'].get('content') or '').strip()
+    choice = result['choices'][0]
+    text = (choice['message'].get('content') or '').strip()
     if not text:
         raise RuntimeError('Gemini вернул пустой ответ')
+    if choice.get('finish_reason') == 'length':
+        cut = max(text.rfind('. '), text.rfind('! '), text.rfind('? '), text.rfind('.\n'), text.rfind('!\n'), text.rfind('?\n'))
+        if cut > len(text) * 0.5:
+            text = text[:cut + 1].rstrip()
+        elif text[-1] not in '.!?…':
+            text = text.rstrip(',;:— ') + '…'
     return text
 
 
@@ -603,9 +611,10 @@ def handler(event: dict, context) -> dict:
     if extra_sources.strip():
         full_prompt += f'\n\nДОПОЛНИТЕЛЬНЫЕ ЗНАНИЯ (используй при ответах):\n{extra_sources}'
     full_prompt += (
-        '\n\nЕсли вопрос ученика можно понять по-разному (например, неясно, про какое именно '
-        'упражнение или ситуацию он спрашивает) — не угадывай и не отвечай про первую попавшуюся '
-        'тему. Вместо этого коротко уточни, что именно он имеет в виду, и предложи 2-3 варианта на выбор.'
+        '\n\nВАЖНО: на прямой вопрос ученика («как сделать», «расскажи», «распиши») сразу давай полный '
+        'развёрнутый ответ: по шагам, с конкретными действиями, ошибками и советами. Никогда не обрывай '
+        'мысль и не ограничивайся одним уточняющим вопросом вместо ответа. Уточняй только если вопрос '
+        'совсем непонятен, и даже тогда сначала дай краткий общий ответ, а потом спроси деталь.'
     )
 
     # Ищем подходящие видео (по названию видео, а не по теме целиком)
@@ -688,7 +697,7 @@ def handler(event: dict, context) -> dict:
     messages.append({'role': 'user', 'text': message})
 
     try:
-        answer = call_llm(api_key, folder_id, messages, temperature=temperature, max_tokens=512, timeout=25)
+        answer = call_llm(api_key, folder_id, messages, temperature=temperature, max_tokens=2500, timeout=25)
         save_log(message, answer)
         return resp({'answer': answer, 'video': None, 'videos': []})
     except urllib.error.HTTPError as e:
